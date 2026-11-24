@@ -83,14 +83,21 @@ def show_result():
 def show_test():
     st.title(f"⚡ 반응속도 테스트 - {ss.round}차")
     st.progress(len(ss.times) / TRIALS, text=f"{len(ss.times) + 1} / {TRIALS}회")
+
+    # 위치가 고정된 슬롯: 같은 자리에서 내용만 교체되므로 이전 상자가 남지 않음
+    msg_slot = st.empty()
+    box_slot = st.empty()
+
     if ss.msg:
-        st.info(ss.msg)
+        msg_slot.info(ss.msg)
+    else:
+        msg_slot.empty()
 
     # 1) 시작 대기: 최초 1회만 클릭
     if ss.phase == "idle":
-        if st.button("여기를 한 번 클릭하면 테스트가 시작됩니다\n"
-                     "(이후엔 자동 진행 · 노란색이 되면 최대한 빨리 클릭!)",
-                     key="box_black"):
+        if box_slot.button("여기를 한 번 클릭하면 테스트가 시작됩니다\n"
+                           "(이후엔 자동 진행 · 노란색이 되면 최대한 빨리 클릭!)",
+                           key="box_black"):
             ss.phase = "waiting"
             ss.ready_at = None
             ss.msg = ""
@@ -98,12 +105,11 @@ def show_test():
 
     # 2) 랜덤 대기 (검은 상자) - 이 동안의 클릭은 완전히 무시
     elif ss.phase == "waiting":
-        if ss.ready_at is None:   # 새 대기일 때만 랜덤 시간 결정
+        if ss.ready_at is None:
             ss.ready_at = time.time() + random.uniform(1.5, 5.0)
 
-        st.button("기다리세요...", key="box_black")   # 클릭해도 반환값 무시
+        box_slot.button("기다리세요...", key="box_black")   # 반환값 무시
 
-        # 클릭으로 재실행돼도 목표 시각은 그대로 → 남은 시간만큼만 대기
         time.sleep(max(0, ss.ready_at - time.time()))
         ss.ready_at = None
         ss.phase = "ready"
@@ -112,14 +118,14 @@ def show_test():
 
     # 3) 노란색: 클릭 시 측정, 5초 지나면 초기화
     elif ss.phase == "ready":
-        clicked = st.button("지금 클릭!", key="box_yellow")
+        clicked = box_slot.button("지금 클릭!", key="box_yellow")
 
         if clicked and ss.t0 is not None:
             rt = (time.time() - ss.t0) * 1000
             ss.times.append(rt)
             ss.t0 = None
             ss.msg = f"✅ {rt:.0f} ms"
-            ss.phase = "waiting"   # 클릭 없이 다음 측정 자동 시작
+            ss.phase = "waiting"
             st.rerun()
         else:
             if ss.t0 is None:
