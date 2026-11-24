@@ -6,13 +6,20 @@ import streamlit as st
 
 st.set_page_config(page_title="반응속도 테스트", layout="wide")
 
-TRIALS = 5  # 차수당 측정 횟수
+TRIALS = 5          # 차수당 측정 횟수
+TIMEOUT_SEC = 5     # 노란색 표시 후 제한 시간(초)
 
 st.markdown(
     """
     <style>
+    .block-container { max-width: 100% !important; padding-left: 1rem; padding-right: 1rem; }
+
+    .st-key-box_black, .st-key-box_yellow,
+    .st-key-box_black div[data-testid="stButton"],
+    .st-key-box_yellow div[data-testid="stButton"] { width: 100% !important; }
+
     .st-key-box_black button, .st-key-box_yellow button {
-        width: 100%; height: 300px; border-radius: 16px;
+        width: 100% !important; height: 350px; border-radius: 16px;
         font-size: 28px; font-weight: 700; border: none;
     }
     .st-key-box_black button { background-color: #000; color: #fff; }
@@ -27,8 +34,9 @@ st.markdown(
 ss = st.session_state
 ss.setdefault("round", 1)        # 현재 차수
 ss.setdefault("times", [])       # 현재 차수 측정값(ms)
-ss.setdefault("phase", "idle")   # idle / waiting / ready
+ss.setdefault("phase", "idle")   # idle(시작 대기) / waiting(랜덤 대기) / ready(노란색)
 ss.setdefault("t0", None)        # 노란색 표시 시각
+ss.setdefault("ready_at", None)  # 노란색으로 바뀔 예정 시각
 ss.setdefault("history", {})     # {차수: [측정값]}
 ss.setdefault("msg", "")
 
@@ -38,6 +46,7 @@ def next_round():
     ss.times = []
     ss.phase = "idle"
     ss.t0 = None
+    ss.ready_at = None
     ss.msg = ""
 
 
@@ -77,34 +86,52 @@ def show_test():
     if ss.msg:
         st.info(ss.msg)
 
+    # 1) 시작 대기: 최초 1회만 클릭
     if ss.phase == "idle":
-        if st.button("여기를 클릭하면 시작!\n노란색으로 바뀌면 최대한 빨리 클릭하세요", key="box_black"):
+        if st.button("여기를 한 번 클릭하면 테스트가 시작됩니다\n"
+                     "(이후엔 자동 진행 · 노란색이 되면 최대한 빨리 클릭!)",
+                     key="box_black"):
             ss.phase = "waiting"
+            ss.ready_at = None
             ss.msg = ""
             st.rerun()
 
+    # 2) 랜덤 대기 (검은 상자) - 이 동안의 클릭은 완전히 무시
     elif ss.phase == "waiting":
-        # 대기 중 클릭하면 이 rerun이 sleep을 끊고 True로 들어옴 → 너무 빠른 클릭
-        if st.button("기다리세요...", key="box_black"):
-            ss.phase = "idle"
-            ss.msg = "❌ 너무 일찍 클릭했어요! 다시 시도하세요."
-            st.rerun()
-        time.sleep(random.uniform(1.5, 5.0))   # 랜덤 대기
+        if ss.ready_at is None:   # 새 대기일 때만 랜덤 시간 결정
+            ss.ready_at = time.time() + random.uniform(1.5, 5.0)
+
+        st.button("기다리세요...", key="box_black")   # 클릭해도 반환값 무시
+
+        # 클릭으로 재실행돼도 목표 시각은 그대로 → 남은 시간만큼만 대기
+        time.sleep(max(0, ss.ready_at - time.time()))
+        ss.ready_at = None
         ss.phase = "ready"
         ss.t0 = None
         st.rerun()
 
+    # 3) 노란색: 클릭 시 측정, 5초 지나면 초기화
     elif ss.phase == "ready":
         clicked = st.button("지금 클릭!", key="box_yellow")
+
         if clicked and ss.t0 is not None:
             rt = (time.time() - ss.t0) * 1000
             ss.times.append(rt)
-            ss.phase = "idle"
             ss.t0 = None
             ss.msg = f"✅ {rt:.0f} ms"
+            ss.phase = "waiting"   # 클릭 없이 다음 측정 자동 시작
             st.rerun()
-        elif ss.t0 is None:
-            ss.t0 = time.time()   # 노란 상자가 그려진 직후부터 측정 시작
+        else:
+            if ss.t0 is None:
+                ss.t0 = time.time()
+            remaining = TIMEOUT_SEC - (time.time() - ss.t0)
+            time.sleep(max(0, remaining))
+            ss.times = []
+            ss.t0 = None
+            ss.phase = "idle"
+            ss.msg = (f"⏰ {TIMEOUT_SEC}초 안에 클릭하지 않아 횟수를 초기화하고 멈췄습니다. "
+                      "검은 상자를 클릭하면 처음부터 다시 시작합니다.")
+            st.rerun()
 
 
 if len(ss.times) >= TRIALS:
